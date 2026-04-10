@@ -15,7 +15,10 @@ import java.util.UUID
  * Manager class for Salesforce In-App Messaging SDK
  * Handles configuration and opening of chat conversations
  */
-class SalesforceMessagingManager(private val context: Context) {
+class SalesforceMessagingManager(
+    private val context: Context,
+    private val eventCallback: ((String) -> Unit)? = null
+) {
 
     private var uiClient: UIClient? = null
     private var coreClient: CoreClient? = null
@@ -38,6 +41,17 @@ class SalesforceMessagingManager(private val context: Context) {
         // Preference key for storing conversation ID
         private const val PREF_CONVERSATION_ID = "salesforce_conversation_id"
         private const val PREFS_NAME = "salesforce_messaging_prefs"
+
+        // Static event callback for fragments
+        private var staticEventCallback: ((String) -> Unit)? = null
+
+        fun setStaticEventCallback(callback: ((String) -> Unit)?) {
+            staticEventCallback = callback
+        }
+
+        fun sendEventToFlutter(event: String) {
+            staticEventCallback?.invoke(event)
+        }
     }
 
     /**
@@ -125,8 +139,12 @@ class SalesforceMessagingManager(private val context: Context) {
      */
     private fun openChatAsModal(config: UIConfiguration) {
         try {
-            // Set the configuration in ChatActivity
+            // Set the static callback for fragments
+            setStaticEventCallback(eventCallback)
+            
+            // Set the configuration and callback in ChatActivity
             ChatActivity.setUIConfig(config)
+            ChatActivity.setEventCallback(eventCallback)
             
             // Launch ChatActivity
             val intent = Intent(context, ChatActivity::class.java)

@@ -26,7 +26,15 @@ class SalesforceMethodChannelHandler {
             self.handleMethodCall(call, result: result)
         }
         
+        // Set the channel reference in SalesforceMessagingManager so it can send events
+        SalesforceMessagingManager.shared.setEventChannel(channel)
+        
         print("Salesforce Method Channel Handler setup complete for channel: \(channelName)")
+    }
+    
+    /// Invoke a method on Flutter side
+    func invokeFlutterMethod(_ method: String, arguments: Any? = nil) {
+        channel?.invokeMethod(method, arguments: arguments) { _ in }
     }
 
     /// Handle incoming method calls from Flutter

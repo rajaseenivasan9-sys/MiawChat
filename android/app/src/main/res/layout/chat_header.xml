@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="54dp"
+    android:background="#123454"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp">
+
+    <!-- Logo -->
+    <ImageView
+        android:id="@+id/chat_logo"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@drawable/ic_nyl_logo"
+        android:contentDescription="@string/app_name"
+        android:scaleType="fitCenter" />
+
+    <!-- Spacer -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Minimize Button -->
+    <ImageButton
+        android:id="@+id/minimize_button"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_minimize"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:scaleType="fitCenter"
+        android:contentDescription="@string/minimize_button"
+        android:tint="@android:color/white"
+        android:layout_marginEnd="16dp" />
+
+    <!-- Close Button -->
+    <ImageButton
+        android:id="@+id/close_button"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_close"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:scaleType="fitCenter"
+        android:contentDescription="@string/close_button"
+        android:tint="@android:color/white" />
+
+</LinearLayout>

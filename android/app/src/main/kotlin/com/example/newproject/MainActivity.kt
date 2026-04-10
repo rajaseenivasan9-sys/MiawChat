@@ -8,6 +8,7 @@ class MainActivity : FlutterActivity() {
     
     companion object {
         private const val CHANNEL = "com.example.newproject/salesforce_chat"
+        private var methodChannel: MethodChannel? = null
     }
     
     private lateinit var salesforceManager: SalesforceMessagingManager
@@ -15,11 +16,18 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
-        // Initialize Salesforce Messaging Manager
-        salesforceManager = SalesforceMessagingManager(this)
+        // Initialize Salesforce Messaging Manager with callback for events
+        salesforceManager = SalesforceMessagingManager(this) { event ->
+            // Send events back to Flutter
+            when (event) {
+                "minimized" -> methodChannel?.invokeMethod("onChatMinimized", null)
+                "closed" -> methodChannel?.invokeMethod("onChatClosed", null)
+            }
+        }
         
         // Set up method channel for Flutter communication
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "openChat" -> {
                     try {
@@ -85,4 +93,5 @@ class MainActivity : FlutterActivity() {
         }
     }
 }
+
 

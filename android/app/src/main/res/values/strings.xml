@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">New Project</string>
+    <string name="minimize_button">Minimize chat</string>
+    <string name="close_button">Close chat</string>
+</resources>

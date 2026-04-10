@@ -3,8 +3,8 @@ package com.example.newproject
 import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.salesforce.android.smi.ui.UIClient
@@ -19,11 +19,18 @@ class ChatActivity : AppCompatActivity() {
     companion object {
         private const val UI_CONFIG_KEY = "uiConfig"
         private var currentUIConfig: UIConfiguration? = null
+        private var eventCallback: ((String) -> Unit)? = null
 
         fun setUIConfig(config: UIConfiguration) {
             currentUIConfig = config
         }
+        
+        fun setEventCallback(callback: ((String) -> Unit)?) {
+            eventCallback = callback
+        }
     }
+    
+    private var eventSent = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,49 +40,32 @@ class ChatActivity : AppCompatActivity() {
             window.statusBarColor = ContextCompat.getColor(this, android.R.color.holo_blue_dark)
         }
 
-        // Create root container
-        val rootView = FrameLayout(this).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setBackgroundColor(ContextCompat.getColor(this@ChatActivity, android.R.color.white))
-        }
+        // Set the custom layout
+        setContentView(R.layout.chat_activity)
 
-        // Add blue header (56dp)
-        val headerView = View(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dpToPx(56)
-            )
-            setBackgroundColor(ContextCompat.getColor(this@ChatActivity, android.R.color.holo_blue_dark))
-        }
-        rootView.addView(headerView)
+        // Get references to views
+        val contentContainer = findViewById<FrameLayout>(R.id.content_container)
+        val minimizeButton = findViewById<ImageButton>(R.id.minimize_button)
+        val closeButton = findViewById<ImageButton>(R.id.close_button)
 
-        // Add close button or handle in header
-        val closeButton = View(this).apply {
-            layoutParams = FrameLayout.LayoutParams(dpToPx(40), dpToPx(40)).apply {
-                gravity = android.view.Gravity.TOP or android.view.Gravity.END
-                rightMargin = dpToPx(16)
-                topMargin = dpToPx(8)
+        // Set up button click listeners
+        minimizeButton.setOnClickListener {
+            // Send minimize event to Flutter
+            if (!eventSent) {
+                eventSent = true
+                eventCallback?.invoke("minimized")
             }
-            setBackgroundResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setOnClickListener { finish() }
+            finish()
         }
-        rootView.addView(closeButton)
 
-        // Create content container for Salesforce chat UI
-        val contentContainer = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                topMargin = dpToPx(56)
+        closeButton.setOnClickListener {
+            // Send close event to Flutter
+            if (!eventSent) {
+                eventSent = true
+                eventCallback?.invoke("closed")
             }
+            finish()
         }
-        rootView.addView(contentContainer)
-
-        setContentView(rootView)
 
         // Open the Salesforce chat UI
         if (currentUIConfig != null) {
@@ -91,11 +81,21 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun dpToPx(dp: Int): Int {
-        return (dp * resources.displayMetrics.density).toInt()
+    override fun onBackPressed() {
+        // Send close event when back button is pressed (only if not already sent)
+        if (!eventSent) {
+            eventSent = true
+            eventCallback?.invoke("closed")
+        }
+        super.onBackPressed()
     }
 
     override fun finish() {
+        // Send close event when activity is finished via finish() (only if not already sent)
+        if (!eventSent) {
+            eventSent = true
+            eventCallback?.invoke("closed")
+        }
         super.finish()
         // Add bottom slide animation when closing
         overridePendingTransition(0, android.R.anim.slide_out_right)

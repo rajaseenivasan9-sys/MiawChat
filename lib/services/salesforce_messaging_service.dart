@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'dart:async';
 
 /// Service class to interact with Salesforce In-App Messaging SDK
 /// This provides a Flutter interface to the native Android Salesforce chat
@@ -6,6 +7,48 @@ class SalesforceMessagingService {
   static const MethodChannel _channel = MethodChannel(
     'com.example.newproject/salesforce_chat',
   );
+
+  static final _chatDismissedController = StreamController<String>.broadcast();
+  static bool _handlerInitialized = false;
+
+  /// Initialize the method call handler (only once)
+  static void _initializeHandler() {
+    if (_handlerInitialized) return;
+    _handlerInitialized = true;
+
+    _channel.setMethodCallHandler((call) async {
+      // Check for the method names that native side is sending
+      if (call.method == 'onChatClosed' || call.method == 'closed') {
+        _chatDismissedController.add('closed');
+        return true;
+      } else if (call.method == 'onChatMinimized' ||
+          call.method == 'minimized') {
+        _chatDismissedController.add('minimized');
+        return true;
+      }
+      return false;
+    });
+  }
+
+  /// Stream for listening to chat dismissed events (minimized or closed) from native side
+  /// Emits 'minimized' when user minimizes the chat
+  /// Emits 'closed' when user closes the chat
+  static Stream<String> get onChatDismissed {
+    _initializeHandler();
+    return _chatDismissedController.stream;
+  }
+
+  /// Debug method: Manually trigger minimize event (for testing)
+  static Future<void> testMinimizeEvent() async {
+    print('TEST: Triggering minimize event');
+    _chatDismissedController.add('minimized');
+  }
+
+  /// Debug method: Manually trigger close event (for testing)
+  static Future<void> testCloseEvent() async {
+    print('TEST: Triggering close event');
+    _chatDismissedController.add('closed');
+  }
 
   /// Opens the Salesforce chat using the config file (salesforce_config.json)
   ///

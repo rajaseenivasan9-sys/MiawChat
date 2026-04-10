@@ -12,6 +12,8 @@ class SalesforceMessagingManager {
 
     private var config: UIConfiguration?
     private var conversationId: UUID?
+    private var eventChannel: FlutterMethodChannel?
+    private var eventCallback: ((String) -> Void)?
 
     private let configFileName = "salesforce_config"
     private let conversationIdKey = "com.salesforce.messaging.conversationId"
@@ -19,6 +21,17 @@ class SalesforceMessagingManager {
     private var currentChatViewController: UIViewController?
 
     private init() {}
+    
+    /// Set the event channel for sending events to Flutter
+    func setEventChannel(_ channel: FlutterMethodChannel?) {
+        self.eventChannel = channel
+    }
+
+    private func sendEventToFlutter(_ event: String) {
+        print("Sending event to Flutter: \(event)")
+        eventChannel?.invokeMethod(event, arguments: nil) { _ in }
+        eventCallback?(event)
+    }
 
     // MARK: - Open Chat Methods
 
@@ -112,40 +125,42 @@ class SalesforceMessagingManager {
     }
 
     func openChatAsBottomSheet(from viewController: UIViewController, usePersistedConversation: Bool = true) throws {
-    guard let configPath = Bundle.main.path(forResource: configFileName, ofType: "json") else {
-        throw SalesforceMessagingError.configFileNotFound
+        guard let configPath = Bundle.main.path(forResource: configFileName, ofType: "json") else {
+            throw SalesforceMessagingError.configFileNotFound
+        }
+
+        let configURL = URL(fileURLWithPath: configPath)
+        let conversationID = usePersistedConversation ? getOrCreateConversationId() : UUID()
+        self.conversationId = conversationID
+
+        let uiConfig = UIConfiguration(url: configURL, conversationId: conversationID)!
+        self.config = uiConfig
+
+        let navigationBarBuilder = NavigationBarBuilder()
+        navigationBarBuilder.updateNavigation { _, navigationItem in
+            navigationItem.leftBarButtonItems = []
+            navigationItem.rightBarButtonItems = []
+            navigationItem.title = ""
+            navigationItem.titleView = nil
+            navigationItem.hidesBackButton = true
+        }
+
+        let chatVC = ModalInterfaceViewController(
+            uiConfig,
+            preChatFieldValueProvider: nil,
+            chatFeedViewBuilder: nil,
+            navigationBarBuilder: navigationBarBuilder
+        )
+        chatVC.setNavigationBarHidden(true, animated: false)
+
+        let containerVC = ChatContainerViewController(contentController: chatVC, eventCallback: { [weak self] event in
+            self?.sendEventToFlutter(event)
+        })
+        self.currentChatViewController = containerVC
+
+        containerVC.modalPresentationStyle = .overFullScreen
+        viewController.present(containerVC, animated: true)
     }
-
-    let configURL = URL(fileURLWithPath: configPath)
-    let conversationID = usePersistedConversation ? getOrCreateConversationId() : UUID()
-    self.conversationId = conversationID
-
-    let uiConfig = UIConfiguration(url: configURL, conversationId: conversationID)!
-    self.config = uiConfig
-
-    let navigationBarBuilder = NavigationBarBuilder()
-    navigationBarBuilder.updateNavigation { _, navigationItem in
-        navigationItem.leftBarButtonItems = []
-        navigationItem.rightBarButtonItems = []
-        navigationItem.title = ""
-        navigationItem.titleView = nil
-        navigationItem.hidesBackButton = true
-    }
-
-    let chatVC = ModalInterfaceViewController(
-        uiConfig,
-        preChatFieldValueProvider: nil,
-        chatFeedViewBuilder: nil,
-        navigationBarBuilder: navigationBarBuilder
-    )
-    chatVC.setNavigationBarHidden(true, animated: false)
-
-    let containerVC = ChatContainerViewController(contentController: chatVC)
-    self.currentChatViewController = containerVC
-
-    containerVC.modalPresentationStyle = .overFullScreen
-    viewController.present(containerVC, animated: true)
-}
 
     /// Closes the current conversation explicitly
     /// When closed, no new messages can be sent to this conversation
@@ -167,6 +182,7 @@ class SalesforceMessagingManager {
 private class ChatContainerViewController: UIViewController {
     private let contentController: UIViewController
     private let headerHeight: CGFloat = 54
+    private var eventCallback: ((String) -> Void)?
 
     private let sheetView: UIView = {
         let view = UIView()
@@ -178,8 +194,9 @@ private class ChatContainerViewController: UIViewController {
         return view
     }()
 
-    init(contentController: UIViewController) {
+    init(contentController: UIViewController, eventCallback: ((String) -> Void)? = nil) {
         self.contentController = contentController
+        self.eventCallback = eventCallback
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -209,35 +226,40 @@ private class ChatContainerViewController: UIViewController {
     private func setupHeader() {
         let headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = UIColor(red: 8/255, green: 60/255, blue: 91/255, alpha: 1.0)
+        headerView.backgroundColor = UIColor(red: 18/255, green: 52/255, blue: 84/255, alpha: 1.0) // Dark blue #123454
 
-        let logoLabel = UILabel()
-        logoLabel.translatesAutoresizingMaskIntoConstraints = false
-        logoLabel.text = "New York Life"
-        logoLabel.textColor = .white
-        logoLabel.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        // Create logo view with New York Life icon
+        let logoImageView = UIImageView()
+        logoImageView.translatesAutoresizingMaskIntoConstraints = false
+        logoImageView.contentMode = .scaleAspectFit
+        logoImageView.image = UIImage(named: "nyl_logo") ?? UIImage(systemName: "square.fill")
+        logoImageView.tintColor = .white
 
-        let minimizeButton = UIButton(type: .system)
+        // Minimize button with custom icon
+        let minimizeButton = UIButton(type: .custom)
         minimizeButton.translatesAutoresizingMaskIntoConstraints = false
-        minimizeButton.tintColor = .white
-        minimizeButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
-        minimizeButton.addTarget(self, action: #selector(closeSheet), for: .touchUpInside)
+        minimizeButton.setImage(UIImage(named: "icn_live_chat_minimize"), for: .normal)
+        minimizeButton.tag = 1
+        minimizeButton.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
         minimizeButton.imageView?.contentMode = .scaleAspectFit
 
-        let closeButton = UIButton(type: .system)
+        // Close button with custom icon
+        let closeButton = UIButton(type: .custom)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.tintColor = .white
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeButton.addTarget(self, action: #selector(closeSheet), for: .touchUpInside)
+        closeButton.setImage(UIImage(named: "icn_close"), for: .normal)
+        closeButton.tag = 2
+        closeButton.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
         closeButton.imageView?.contentMode = .scaleAspectFit
 
+        // Create spacer between buttons
         let buttonStack = UIStackView(arrangedSubviews: [minimizeButton, closeButton])
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
         buttonStack.axis = .horizontal
-        buttonStack.spacing = 12
+        buttonStack.spacing = 16
+        buttonStack.distribution = .equalSpacing
 
         sheetView.addSubview(headerView)
-        headerView.addSubview(logoLabel)
+        headerView.addSubview(logoImageView)
         headerView.addSubview(buttonStack)
 
         NSLayoutConstraint.activate([
@@ -246,18 +268,33 @@ private class ChatContainerViewController: UIViewController {
             headerView.trailingAnchor.constraint(equalTo: sheetView.trailingAnchor),
             headerView.heightAnchor.constraint(equalToConstant: headerHeight),
 
-            logoLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
-            logoLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            logoImageView.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12),
+            logoImageView.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            logoImageView.widthAnchor.constraint(equalToConstant: 32),
+            logoImageView.heightAnchor.constraint(equalToConstant: 32),
 
-            minimizeButton.widthAnchor.constraint(equalToConstant: 28),
-            minimizeButton.heightAnchor.constraint(equalToConstant: 28),
+            minimizeButton.widthAnchor.constraint(equalToConstant: 24),
+            minimizeButton.heightAnchor.constraint(equalToConstant: 24),
 
-            closeButton.widthAnchor.constraint(equalToConstant: 28),
-            closeButton.heightAnchor.constraint(equalToConstant: 28),
+            closeButton.widthAnchor.constraint(equalToConstant: 24),
+            closeButton.heightAnchor.constraint(equalToConstant: 24),
 
             buttonStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12),
             buttonStack.centerYAnchor.constraint(equalTo: headerView.centerYAnchor)
         ])
+    }
+    
+    @objc private func buttonTapped(_ sender: UIButton) {
+        if sender.tag == 1 {
+            // Minimize button (chevron.down)
+            eventCallback?("minimized")
+            print("Minimize button tapped - sending minimized event")
+        } else if sender.tag == 2 {
+            // Close button (xmark)
+            eventCallback?("closed")
+            print("Close button tapped - sending closed event")
+        }
+        dismiss(animated: true, completion: nil)
     }
 
     private func setupContentController() {
@@ -272,10 +309,6 @@ private class ChatContainerViewController: UIViewController {
             contentController.view.trailingAnchor.constraint(equalTo: sheetView.trailingAnchor),
             contentController.view.bottomAnchor.constraint(equalTo: sheetView.bottomAnchor)
         ])
-    }
-
-    @objc private func closeSheet() {
-        dismiss(animated: true, completion: nil)
     }
 }
 

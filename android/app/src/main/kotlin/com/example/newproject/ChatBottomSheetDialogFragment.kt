@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import androidx.core.content.ContextCompat
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.salesforce.android.smi.ui.UIClient
@@ -43,35 +44,26 @@ class ChatBottomSheetDialogFragment : BottomSheetDialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Create a container for the chat UI with blue header
-        val rootView = FrameLayout(requireContext()).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+        // Inflate the custom layout
+        val rootView = inflater.inflate(R.layout.chat_activity, container, false)
+
+        // Get references to views
+        val contentContainer = rootView.findViewById<FrameLayout>(R.id.content_container)
+        val minimizeButton = rootView.findViewById<ImageButton>(R.id.minimize_button)
+        val closeButton = rootView.findViewById<ImageButton>(R.id.close_button)
+
+        // Set up button click listeners
+        minimizeButton.setOnClickListener {
+            // Send minimize event to Flutter
+            SalesforceMessagingManager.sendEventToFlutter("minimized")
+            dismiss()
         }
 
-        // Add blue header (56dp height)
-        val headerView = View(requireContext()).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(56)
-            )
-            setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_blue_dark))
+        closeButton.setOnClickListener {
+            // Send close event to Flutter
+            SalesforceMessagingManager.sendEventToFlutter("closed")
+            dismiss()
         }
-        rootView.addView(headerView)
-
-        // Create content container below header
-        val contentContainer = FrameLayout(requireContext()).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                topMargin = dp(56)
-            }
-            setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.white))
-        }
-        rootView.addView(contentContainer)
 
         // Create UIClient and show it (this will open in the conversation activity)
         if (uiConfiguration != null) {
@@ -79,10 +71,6 @@ class ChatBottomSheetDialogFragment : BottomSheetDialogFragment() {
         }
 
         return rootView
-    }
-
-    private fun dp(value: Int): Int {
-        return (value * requireContext().resources.displayMetrics.density).toInt()
     }
 
     override fun onDestroyView() {
