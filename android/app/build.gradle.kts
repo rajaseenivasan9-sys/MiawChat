@@ -68,5 +68,8 @@ dependencies {
     
     // Kotlin Coroutines for async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    
+    // Material Design for bottom sheet and UI components
+    implementation("com.google.android.material:material:1.11.0")
 }
 

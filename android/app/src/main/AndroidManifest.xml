@@ -28,6 +28,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Chat Activity - displays Salesforce chat as bottom modal -->
+        <activity
+            android:name=".ChatActivity"
+            android:exported="false"
+            android:theme="@style/ChatActivityTheme"
+            android:windowSoftInputMode="adjustResize" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

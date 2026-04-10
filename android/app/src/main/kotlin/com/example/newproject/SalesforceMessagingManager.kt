@@ -1,6 +1,7 @@
 package com.example.newproject
 
 import android.content.Context
+import android.content.Intent
 import com.salesforce.android.smi.core.*
 import com.salesforce.android.smi.ui.*
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +20,7 @@ class SalesforceMessagingManager(private val context: Context) {
     private var uiClient: UIClient? = null
     private var coreClient: CoreClient? = null
     private var conversationId: UUID? = null
+    private var currentUIConfig: UIConfiguration? = null
     
     // Coroutine scope for async operations
     private val supervisorJob = SupervisorJob()
@@ -58,13 +60,13 @@ class SalesforceMessagingManager(private val context: Context) {
 
             // Create a UI configuration object
             val config = UIConfiguration(coreConfig, conversationID)
+            this.currentUIConfig = config
 
             // Create CoreClient for conversation management
             coreClient = CoreClient.Factory.create(context, coreConfig)
 
-            // Create UIClient and open conversation
-            uiClient = UIClient.Factory.create(config)
-            uiClient?.openConversationActivity(context)
+            // Open chat as a bottom sheet modal through ChatActivity
+            openChatAsModal(config)
             
         } catch (e: Exception) {
             e.printStackTrace()
@@ -103,17 +105,35 @@ class SalesforceMessagingManager(private val context: Context) {
 
             // Create a UI configuration object
             val config = UIConfiguration(coreConfig, conversationID)
+            this.currentUIConfig = config
 
             // Create CoreClient for conversation management
             coreClient = CoreClient.Factory.create(context, coreConfig)
 
-            // Create UIClient and open conversation
-            uiClient = UIClient.Factory.create(config)
-            uiClient?.openConversationActivity(context)
+            // Open chat as a bottom sheet modal through ChatActivity
+            openChatAsModal(config)
             
         } catch (e: Exception) {
             e.printStackTrace()
             throw e
+        }
+    }
+
+    /**
+     * Opens the Salesforce chat as a bottom sheet modal with blue header
+     * @param config - The UI configuration for the chat
+     */
+    private fun openChatAsModal(config: UIConfiguration) {
+        try {
+            // Set the configuration in ChatActivity
+            ChatActivity.setUIConfig(config)
+            
+            // Launch ChatActivity
+            val intent = Intent(context, ChatActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
