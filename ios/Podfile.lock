@@ -1,0 +1,35 @@
+PODS:
+  - Flutter (1.0.0)
+  - Messaging-InApp-Core (1.10.4):
+    - SQLCipher (>= 4.10.0)
+  - Messaging-InApp-UI (1.10.4):
+    - Messaging-InApp-Core (= 1.10.4)
+  - SQLCipher (4.10.0):
+    - SQLCipher/standard (= 4.10.0)
+  - SQLCipher/common (4.10.0)
+  - SQLCipher/standard (4.10.0):
+    - SQLCipher/common
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - Messaging-InApp-UI
+
+SPEC REPOS:
+  trunk:
+    - Messaging-InApp-Core
+    - Messaging-InApp-UI
+    - SQLCipher
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Messaging-InApp-Core: 5f362c28d393eca4fcc0fc78cf8db74b7c056ae6
+  Messaging-InApp-UI: 7b7674d67ecf9d84a7db9775bb62ddb34a4dea44
+  SQLCipher: eb79c64049cb002b4e9fcb30edb7979bf4706dfc
+
+PODFILE CHECKSUM: 8d6a3606f9b243c3f5ae73ab4752039cdb9c5741
+
+COCOAPODS: 1.16.2
