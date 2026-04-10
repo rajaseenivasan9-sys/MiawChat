@@ -123,50 +123,161 @@ class SalesforceMessagingManager {
     let uiConfig = UIConfiguration(url: configURL, conversationId: conversationID)!
     self.config = uiConfig
 
-    let chatVC = ModalInterfaceViewController(uiConfig)
-    self.currentChatViewController = chatVC  
-    
-    // Allow swipe to dismiss
-    chatVC.isModalInPresentation = false
-
-    // Configure as bottom sheet with 80% height
-    if #available(iOS 16.0, *) {
-        if let sheet = chatVC.sheetPresentationController {
-            let eightyPercentDetent = UISheetPresentationController.Detent.custom { context in
-                return context.maximumDetentValue * 0.80
-            }
-            sheet.detents = [eightyPercentDetent]
-            sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 20
-        }
-    } else if #available(iOS 15.0, *) {
-        if let sheet = chatVC.sheetPresentationController {
-            sheet.detents = [.large()]  // Fallback to full screen for iOS 15
-            sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 20
-        }
-    } else {
-        chatVC.modalPresentationStyle = .pageSheet
+    let navigationBarBuilder = NavigationBarBuilder()
+    navigationBarBuilder.updateNavigation { _, navigationItem in
+        navigationItem.leftBarButtonItems = []
+        navigationItem.rightBarButtonItems = []
+        navigationItem.title = ""
+        navigationItem.titleView = nil
+        navigationItem.hidesBackButton = true
     }
-    
-    viewController.present(chatVC, animated: true)
-}
 
-    // MARK: - Conversation Management
+    let chatVC = ModalInterfaceViewController(
+        uiConfig,
+        preChatFieldValueProvider: nil,
+        chatFeedViewBuilder: nil,
+        navigationBarBuilder: navigationBarBuilder
+    )
+    chatVC.setNavigationBarHidden(true, animated: false)
+
+    let containerVC = ChatContainerViewController(contentController: chatVC)
+    self.currentChatViewController = containerVC
+
+    containerVC.modalPresentationStyle = .overFullScreen
+    viewController.present(containerVC, animated: true)
+}
 
     /// Closes the current conversation explicitly
     /// When closed, no new messages can be sent to this conversation
     func closeConversation(completion: ((Error?) -> Void)? = nil) {
-        guard conversationId != nil else {
+        if let presentedChat = currentChatViewController {
+            presentedChat.dismiss(animated: true) {
+                self.currentChatViewController = nil
+                self.clearConversation()
+                completion?(nil)
+            }
+        } else if conversationId != nil {
+            clearConversation()
+            completion?(nil)
+        } else {
             completion?(SalesforceMessagingError.chatNotInitialized)
-            return
         }
-
-        // Clear conversation data
-        clearConversation()
-        completion?(nil)
     }
 
+private class ChatContainerViewController: UIViewController {
+    private let contentController: UIViewController
+    private let headerHeight: CGFloat = 54
+
+    private let sheetView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .white
+        view.layer.cornerRadius = 4
+        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        view.clipsToBounds = true
+        return view
+    }()
+
+    init(contentController: UIViewController) {
+        self.contentController = contentController
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(white: 0, alpha: 0.35)
+        setupSheetView()
+        setupHeader()
+        setupContentController()
+    }
+
+    private func setupSheetView() {
+        view.addSubview(sheetView)
+
+        NSLayoutConstraint.activate([
+            sheetView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            sheetView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            sheetView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            sheetView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.80)
+        ])
+    }
+
+    private func setupHeader() {
+        let headerView = UIView()
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = UIColor(red: 8/255, green: 60/255, blue: 91/255, alpha: 1.0)
+
+        let logoLabel = UILabel()
+        logoLabel.translatesAutoresizingMaskIntoConstraints = false
+        logoLabel.text = "New York Life"
+        logoLabel.textColor = .white
+        logoLabel.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+
+        let minimizeButton = UIButton(type: .system)
+        minimizeButton.translatesAutoresizingMaskIntoConstraints = false
+        minimizeButton.tintColor = .white
+        minimizeButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        minimizeButton.addTarget(self, action: #selector(closeSheet), for: .touchUpInside)
+        minimizeButton.imageView?.contentMode = .scaleAspectFit
+
+        let closeButton = UIButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.tintColor = .white
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.addTarget(self, action: #selector(closeSheet), for: .touchUpInside)
+        closeButton.imageView?.contentMode = .scaleAspectFit
+
+        let buttonStack = UIStackView(arrangedSubviews: [minimizeButton, closeButton])
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.axis = .horizontal
+        buttonStack.spacing = 12
+
+        sheetView.addSubview(headerView)
+        headerView.addSubview(logoLabel)
+        headerView.addSubview(buttonStack)
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: sheetView.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: sheetView.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: sheetView.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: headerHeight),
+
+            logoLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+            logoLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            minimizeButton.widthAnchor.constraint(equalToConstant: 28),
+            minimizeButton.heightAnchor.constraint(equalToConstant: 28),
+
+            closeButton.widthAnchor.constraint(equalToConstant: 28),
+            closeButton.heightAnchor.constraint(equalToConstant: 28),
+
+            buttonStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12),
+            buttonStack.centerYAnchor.constraint(equalTo: headerView.centerYAnchor)
+        ])
+    }
+
+    private func setupContentController() {
+        addChild(contentController)
+        contentController.view.translatesAutoresizingMaskIntoConstraints = false
+        sheetView.addSubview(contentController.view)
+        contentController.didMove(toParent: self)
+
+        NSLayoutConstraint.activate([
+            contentController.view.topAnchor.constraint(equalTo: sheetView.topAnchor, constant: headerHeight),
+            contentController.view.leadingAnchor.constraint(equalTo: sheetView.leadingAnchor),
+            contentController.view.trailingAnchor.constraint(equalTo: sheetView.trailingAnchor),
+            contentController.view.bottomAnchor.constraint(equalTo: sheetView.bottomAnchor)
+        ])
+    }
+
+    @objc private func closeSheet() {
+        dismiss(animated: true, completion: nil)
+    }
+}
 
     /// Starts a new conversation (clears current and creates new ID)
     func startNewConversation(from viewController: UIViewController) {
