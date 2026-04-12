@@ -1,18 +1,19 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.20"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.newproject"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36 // Updated to 36 as required by latest dependencies
     ndkVersion = flutter.ndkVersion
 
-    // Enable dataBinding for Salesforce In-App Messaging SDK
     buildFeatures {
         dataBinding = true
+        compose = true
     }
 
     compileOptions {
@@ -25,25 +26,19 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.newproject"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = 24
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
 
-    // Exclude duplicate META-INF files from dependencies
     packaging {
         resources {
             excludes += setOf(
@@ -63,13 +58,15 @@ flutter {
 }
 
 dependencies {
-    // Salesforce In-App Messaging UI SDK
     implementation("com.salesforce.service:messaging-inapp-ui:1.10.0")
-    
-    // Kotlin Coroutines for async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    
-    // Material Design for bottom sheet and UI components
     implementation("com.google.android.material:material:1.11.0")
-}
 
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.activity:activity-compose:1.9.2")
+}
