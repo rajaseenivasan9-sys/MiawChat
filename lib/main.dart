@@ -68,8 +68,13 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
-      final success = await SalesforceMessagingService.openChatWithConfigFile(
-        persistConversation: true,
+      final success = await SalesforceMessagingService.openChat(
+        serviceApiUrl: 'https://nylic--model2.sandbox.my.salesforce-scrt.com',
+        orgId: '00DVZ000004iNeX',
+        deploymentName: 'SRVC_MIAW',
+        clientId: '989221004',
+        policyNumber: '14787312',
+        reason: 'update contact information',
       );
 
       if (!success) {
