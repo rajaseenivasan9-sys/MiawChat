@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:mynyl/l10n/app_localizations.dart';
 import 'package:mynyl/utils/bloc/post_login_bloc.dart';
+import 'package:mynyl/utils/helper/navigator_helper.dart';
 
 enum ChatSessionStatus {
   opened,
@@ -10,6 +12,16 @@ enum ChatSessionStatus {
   closed,
   sessionEnded,
   unknown,
+}
+
+class ChatAssistantTooltipRequest {
+  final double? anchorX;
+  final double? anchorY;
+
+  const ChatAssistantTooltipRequest({
+    this.anchorX,
+    this.anchorY,
+  });
 }
 
 /// Service class to interact with Salesforce In-App Messaging SDK
@@ -22,10 +34,32 @@ class SalesforceMessagingService {
   static final _chatDismissedController = StreamController<String>.broadcast();
   static final _chatStatusController = StreamController<ChatSessionStatus>.broadcast();
   static final _chatUnreadCountController = StreamController<int>.broadcast();
+  static final _chatAssistantTooltipController = StreamController<ChatAssistantTooltipRequest>.broadcast();
   static bool _handlerInitialized = false;
   static int _chatUnreadCount = 0;
+  static bool _hasNativeUnreadCountSource = false;
+  static ChatSessionStatus _chatSessionStatus = ChatSessionStatus.unknown;
 
   static String? _authToken;
+
+  static void _log(String message) {
+    if (kDebugMode) {
+      debugPrint('[SalesforceUnread] $message');
+    }
+  }
+
+  static Map<String, String> _chatAssistantLocalizationPayload() {
+    final context = NavigatorHelper.navigatorKey.currentContext;
+    final localizations = context == null ? null : AppLocalizations.of(context);
+    if (localizations == null) {
+      return const {};
+    }
+
+    return {
+      'chatAssistantTitle': localizations.chat_assistant_tooltip_title,
+      'chatAssistantTooltipMessage': localizations.chat_assistant_tooltip_message,
+    };
+  }
 
   /// Initialize the method call handler (only once)
   static void _initializeHandler() {
@@ -49,16 +83,60 @@ class SalesforceMessagingService {
       } else if (call.method == 'onChatUnreadCountChanged') {
         final dynamic args = call.arguments;
         if (args is int) {
-          _setUnreadCount(args);
+          _log('onChatUnreadCountChanged(int): $args');
+          _setUnreadCountFromNative(args);
         } else if (args is String) {
-          _setUnreadCount(int.tryParse(args) ?? _chatUnreadCount);
+          final parsed = int.tryParse(args) ?? _chatUnreadCount;
+          _log('onChatUnreadCountChanged(String): raw=$args parsed=$parsed');
+          _setUnreadCountFromNative(parsed);
         } else if (args is Map) {
           final dynamic raw = args['count'];
-          _setUnreadCount(raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? _chatUnreadCount);
+          final parsed = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? _chatUnreadCount;
+          _log('onChatUnreadCountChanged(Map): raw=$raw parsed=$parsed');
+          _setUnreadCountFromNative(parsed);
         }
         return true;
       } else if (call.method == 'onChatNewMessage') {
-        incrementUnreadCount();
+        final dynamic args = call.arguments;
+        int? nativeCount;
+        if (args is int) {
+          nativeCount = args;
+        } else if (args is String) {
+          nativeCount = int.tryParse(args);
+        } else if (args is Map) {
+          final dynamic raw = args['count'];
+          nativeCount = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+        }
+
+        _log(
+            'onChatNewMessage: args=$args nativeCount=$nativeCount status=$_chatSessionStatus unread=$_chatUnreadCount hasNative=$_hasNativeUnreadCountSource');
+
+        // Native absolute unread callbacks have proven unreliable after minimize.
+        // Keep badge state recoverable from new-message events while chat is minimized.
+        if (_chatSessionStatus == ChatSessionStatus.minimized) {
+          if (nativeCount != null) {
+            if (nativeCount > _chatUnreadCount) {
+              _log('onChatNewMessage(minimized): applying nativeCount=$nativeCount');
+              _setUnreadCount(nativeCount);
+            }
+          } else {
+            _log('onChatNewMessage(minimized): increment fallback');
+            incrementUnreadCount();
+          }
+        } else if (!_hasNativeUnreadCountSource) {
+          _log('onChatNewMessage(non-minimized/no-native): increment fallback');
+          incrementUnreadCount();
+        }
+        return true;
+      } else if (call.method == 'chat_assistant_tooltip_requested') {
+        final dynamic args = call.arguments;
+        if (args is Map) {
+          final dynamic rawX = args['anchorX'];
+          final dynamic rawY = args['anchorY'];
+          final anchorX = rawX is num ? rawX.toDouble() : double.tryParse(rawX?.toString() ?? '');
+          final anchorY = rawY is num ? rawY.toDouble() : double.tryParse(rawY?.toString() ?? '');
+          _chatAssistantTooltipController.add(ChatAssistantTooltipRequest(anchorX: anchorX, anchorY: anchorY));
+        }
         return true;
       } else if (call.method == 'getToken' || call.method == 'refreshToken') {
         final token = await _fetchAuthToken(refresh: call.method == 'refreshToken');
@@ -72,10 +150,11 @@ class SalesforceMessagingService {
   }
 
   static void _emitChatStatus(ChatSessionStatus status) {
+    _log('status: $_chatSessionStatus -> $status');
+    _chatSessionStatus = status;
     _chatStatusController.add(status);
-    if (status == ChatSessionStatus.opened ||
-        status == ChatSessionStatus.closed ||
-        status == ChatSessionStatus.sessionEnded) {
+    if (status == ChatSessionStatus.closed || status == ChatSessionStatus.sessionEnded) {
+      _log('status=$status, resetting unread to 0');
       _setUnreadCount(0);
     }
     if (status == ChatSessionStatus.minimized) {
@@ -87,8 +166,15 @@ class SalesforceMessagingService {
 
   static void _setUnreadCount(int count) {
     final normalized = count < 0 ? 0 : count;
+    _log('setUnread: old=$_chatUnreadCount new=$normalized');
     _chatUnreadCount = normalized;
     _chatUnreadCountController.add(_chatUnreadCount);
+  }
+
+  static void _setUnreadCountFromNative(int count) {
+    _log('setUnreadFromNative: count=$count');
+    _hasNativeUnreadCountSource = true;
+    _setUnreadCount(count);
   }
 
   static Future<String?> _fetchAuthToken({bool refresh = false}) async {
@@ -96,9 +182,22 @@ class SalesforceMessagingService {
       return _authToken!;
     }
 
-    final result = await PostLoginBlocHelper.dashboardRepository.fetchChatCredentials();
+    var result = await PostLoginBlocHelper.dashboardRepository.fetchChatCredentials();
     if (result.$2) {
       _authToken = result.$1.token;
+      _log('token fetch success on first attempt');
+      return _authToken;
+    }
+
+    // One fast retry helps with occasional transient auth failures observed during send.
+    _log('token fetch failed on first attempt, retrying once');
+    await Future.delayed(const Duration(milliseconds: 300));
+    result = await PostLoginBlocHelper.dashboardRepository.fetchChatCredentials();
+    if (result.$2) {
+      _authToken = result.$1.token;
+      _log('token fetch success on retry');
+    } else {
+      _log('token fetch failed after retry');
     }
     return _authToken;
   }
@@ -113,6 +212,31 @@ class SalesforceMessagingService {
       debugPrint('Failed to set user verification token: ${e.message}');
       return false;
     }
+  }
+
+  /// Revokes user verification token on native SDK side.
+  static Future<bool> revokeToken() async {
+    try {
+      final result = await _channel.invokeMethod('revokeToken');
+      return result == true;
+    } on MissingPluginException catch (e) {
+      debugPrint('Salesforce chat plugin not available on this platform: $e');
+      return false;
+    } on PlatformException catch (e) {
+      debugPrint('Failed to revoke Salesforce token: ${e.message}');
+      return false;
+    }
+  }
+
+  /// Clears local and native chat state during logout.
+  static Future<void> resetForLogout() async {
+    _authToken = null;
+    await dismissChat();
+    resetUnreadCount();
+    notifyChatClosed();
+
+    await revokeToken();
+    await clearConversation(deletePersistedConversationId: true);
   }
 
   /// Stream for listening to chat dismissed events (minimized or closed) from native side
@@ -134,13 +258,21 @@ class SalesforceMessagingService {
     return _chatUnreadCountController.stream;
   }
 
+  static Stream<ChatAssistantTooltipRequest> get onChatAssistantTooltipRequested {
+    _initializeHandler();
+    return _chatAssistantTooltipController.stream;
+  }
+
   static int get chatUnreadCount => _chatUnreadCount;
 
   static void incrementUnreadCount() {
+    _log('incrementUnreadCount from=$_chatUnreadCount');
     _setUnreadCount(_chatUnreadCount + 1);
   }
 
   static void resetUnreadCount() {
+    _log('resetUnreadCount (clear source + set 0)');
+    _hasNativeUnreadCountSource = false;
     _setUnreadCount(0);
   }
 
@@ -156,35 +288,14 @@ class SalesforceMessagingService {
 
   /// Debug method: Manually trigger minimize event (for testing)
   static Future<void> testMinimizeEvent() async {
-    print('TEST: Triggering minimize event');
+    debugPrint('TEST: Triggering minimize event');
     notifyChatMinimized();
   }
 
   /// Debug method: Manually trigger close event (for testing)
   static Future<void> testCloseEvent() async {
-    print('TEST: Triggering close event');
+    debugPrint('TEST: Triggering close event');
     notifyChatClosed();
-  }
-
-  /// Opens the Salesforce chat using the config file (salesforce_config.json)
-  ///
-  /// [persistConversation] - If true, uses the same conversation ID across app restarts
-  static Future<bool> openChatWithConfigFile({
-    bool persistConversation = true,
-  }) async {
-    try {
-      final result = await _channel.invokeMethod('openChat', {
-        'useConfigFile': true,
-        'persistConversation': persistConversation,
-      });
-      return result == true;
-    } on MissingPluginException catch (e) {
-      debugPrint('Salesforce chat plugin not available on this platform: $e');
-      return false;
-    } on PlatformException catch (e) {
-      debugPrint('Failed to open Salesforce chat: ${e.message}');
-      return false;
-    }
   }
 
   /// Opens the Salesforce chat using manual configuration
@@ -193,19 +304,18 @@ class SalesforceMessagingService {
   /// [orgId] - Your Salesforce Organization ID
   /// [deploymentName] - The API name of your deployment
   /// [persistConversation] - If true, uses the same conversation ID across app restarts
-  static Future<bool> openChatManual({
+  static Future<bool> resumeChat({
     required String serviceApiUrl,
     required String orgId,
     required String deploymentName,
-    bool persistConversation = true,
   }) async {
+    _initializeHandler();
     try {
       final result = await _channel.invokeMethod('openChat', {
-        'useConfigFile': false,
-        'persistConversation': persistConversation,
         'serviceApiUrl': serviceApiUrl,
         'orgId': orgId,
         'deploymentName': deploymentName,
+        ..._chatAssistantLocalizationPayload(),
       });
       return result == true;
     } on MissingPluginException catch (e) {
@@ -222,21 +332,18 @@ class SalesforceMessagingService {
   /// [serviceApiUrl] - The Salesforce Service API URL
   /// [orgId] - Your Salesforce Organization ID
   /// [deploymentName] - The API name of your deployment
-  /// [persistConversation] - If true, uses the same conversation ID across app restarts
-  static Future<bool> openChatManualWithPreChatValues({
+  static Future<bool> openChat({
     required String serviceApiUrl,
     required String orgId,
     required String deploymentName,
     required String clientId,
     required String policyNumber,
     required String reason,
-    bool persistConversation = true,
   }) async {
+    _initializeHandler();
     try {
       final timeZoneOffset = DateTime.now().timeZoneOffset.inMinutes;
       final result = await _channel.invokeMethod('openChat', {
-        'useConfigFile': false,
-        'persistConversation': persistConversation,
         'serviceApiUrl': serviceApiUrl,
         'orgId': orgId,
         'deploymentName': deploymentName,
@@ -245,6 +352,7 @@ class SalesforceMessagingService {
         'policyNumber': policyNumber,
         'reason': reason,
         'timeZoneOffset': timeZoneOffset.toString(),
+        ..._chatAssistantLocalizationPayload(),
       });
       return result == true;
     } on MissingPluginException catch (e) {
@@ -256,12 +364,21 @@ class SalesforceMessagingService {
     }
   }
 
-  /// Clears the current conversation ID (but doesn't close the conversation)
-  /// Call this when you want to start a fresh conversation
-  static Future<bool> clearConversation() async {
+  /// Clears current native chat state.
+  ///
+  /// When [deletePersistedConversationId] is true, a fresh conversation ID will
+  /// be generated on next open. Set it to false to preserve history continuity.
+  static Future<bool> clearConversation({
+    bool deletePersistedConversationId = true,
+  }) async {
     try {
-      final result = await _channel.invokeMethod('clearConversation');
+      final result = await _channel.invokeMethod('clearConversation', {
+        'deletePersistedConversationId': deletePersistedConversationId,
+      });
       return result == true;
+    } on MissingPluginException catch (e) {
+      debugPrint('Salesforce chat plugin not available on this platform: $e');
+      return false;
     } on PlatformException catch (e) {
       debugPrint('Failed to clear conversation: ${e.message}');
       return false;
@@ -279,6 +396,9 @@ class SalesforceMessagingService {
         _emitChatStatus(ChatSessionStatus.sessionEnded);
       }
       return isSuccess;
+    } on MissingPluginException catch (e) {
+      debugPrint('Salesforce chat plugin not available on this platform: $e');
+      return false;
     } on PlatformException catch (e) {
       debugPrint('Failed to close conversation: ${e.message}');
       return false;
@@ -290,19 +410,25 @@ class SalesforceMessagingService {
     try {
       final result = await _channel.invokeMethod('minimizeChat');
       return result == true;
+    } on MissingPluginException catch (e) {
+      debugPrint('Salesforce chat plugin not available on this platform: $e');
+      return false;
     } on PlatformException catch (e) {
-      print('Failed to minimize chat: ${e.message}');
+      debugPrint('Failed to minimize chat: ${e.message}');
       return false;
     }
   }
 
-  /// Starts a new conversation (closes current and creates new ID)
-  static Future<bool> startNewConversation() async {
+  /// Dismisses any currently visible native chat UI without depending on header actions.
+  static Future<bool> dismissChat() async {
     try {
-      final result = await _channel.invokeMethod('startNewConversation');
+      final result = await _channel.invokeMethod('dismissChat');
       return result == true;
+    } on MissingPluginException catch (e) {
+      debugPrint('Salesforce chat plugin not available on this platform: $e');
+      return false;
     } on PlatformException catch (e) {
-      debugPrint('Failed to start new conversation: ${e.message}');
+      debugPrint('Failed to dismiss chat: ${e.message}');
       return false;
     }
   }
@@ -312,6 +438,9 @@ class SalesforceMessagingService {
     try {
       final result = await _channel.invokeMethod('getConversationId');
       return result as String?;
+    } on MissingPluginException catch (e) {
+      debugPrint('Salesforce chat plugin not available on this platform: $e');
+      return null;
     } on PlatformException catch (e) {
       debugPrint('Failed to get conversation ID: ${e.message}');
       return null;
