@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import os.log
 
 /// Handles Flutter method channel communication for Salesforce In-App Chat
 class SalesforceMethodChannelHandler: SalesforceAuthTokenProvider {
@@ -20,19 +21,21 @@ class SalesforceMethodChannelHandler: SalesforceAuthTokenProvider {
 
         channel?.setMethodCallHandler { [weak self] (call, result) in
             guard let self = self else {
-                result(FlutterError(code: "HANDLER_ERROR", message: "Handler deallocated", details: nil))
+                result(
+                    FlutterError(
+                        code: "HANDLER_ERROR", message: "Handler deallocated", details: nil))
                 return
             }
             self.handleMethodCall(call, result: result)
         }
-        
+
         // Set the channel reference in SalesforceMessagingManager so it can send events
         SalesforceMessagingManager.shared.setEventChannel(channel)
         SalesforceMessagingManager.shared.setAuthTokenProvider(self)
-        
+
         print("Salesforce Method Channel Handler setup complete for channel: \(channelName)")
     }
-    
+
     /// Invoke a method on Flutter side
     func invokeFlutterMethod(_ method: String, arguments: Any? = nil) {
         channel?.invokeMethod(method, arguments: arguments) { _ in }
@@ -40,12 +43,17 @@ class SalesforceMethodChannelHandler: SalesforceAuthTokenProvider {
 
     /// Handle incoming method calls from Flutter
     private func handleMethodCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first(where: { $0.isKeyWindow }),
-              let rootViewController = window.rootViewController else {
-            result(FlutterError(code: "NO_VIEW_CONTROLLER", message: "Root view controller not found", details: nil))
+        guard
+            let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow }),
+            let rootViewController = window.rootViewController
+        else {
+            result(
+                FlutterError(
+                    code: "NO_VIEW_CONTROLLER", message: "Root view controller not found",
+                    details: nil))
             return
         }
 
@@ -54,22 +62,23 @@ class SalesforceMethodChannelHandler: SalesforceAuthTokenProvider {
             handleOpenChat(call, viewController: rootViewController, result: result)
 
         case "clearConversation":
-            SalesforceMessagingManager.shared.clearConversation()
+            let args = call.arguments as? [String: Any]
+            let deletePersistedConversationId =
+                args?["deletePersistedConversationId"] as? Bool ?? true
+            SalesforceMessagingManager.shared.clearConversation(
+                deletePersistedConversationId: deletePersistedConversationId)
             result(true)
 
         case "closeConversation":
             SalesforceMessagingManager.shared.closeConversation { error in
                 if let error = error {
-                    result(FlutterError(code: "CLOSE_ERROR", message: error.localizedDescription, details: nil))
+                    result(
+                        FlutterError(
+                            code: "CLOSE_ERROR", message: error.localizedDescription, details: nil))
                 } else {
                     result(true)
                 }
             }
-
-        case "startNewConversation":
-            SalesforceMessagingManager.shared.startNewConversation(from: rootViewController)
-            invokeFlutterMethod("onChatOpened")
-            result(true)
 
         case "minimizeChat":
             SalesforceMessagingManager.shared.minimizeChat()
@@ -98,70 +107,126 @@ class SalesforceMethodChannelHandler: SalesforceAuthTokenProvider {
 
     private func requestTokenFromFlutter(method: String, completion: @escaping (String?) -> Void) {
         guard let channel = channel else {
+            print("[SalesforceMethodChannelHandler] ERROR: Channel unavailable for \(method)")
             completion(nil)
             return
         }
 
-        channel.invokeMethod(method, arguments: nil) { response in
-            print(response)
-            completion(response as? String)
+        func requestToken(attempt: Int) {
+            channel.invokeMethod(method, arguments: nil) { response in
+                if let token = response as? String, !token.isEmpty {
+                    print(
+                        "[SalesforceMethodChannelHandler] \(method) token response length: \(token.count) (attempt=\(attempt))"
+                    )
+                    completion(token)
+                    return
+                }
+
+                if attempt == 1 {
+                    print("[SalesforceMethodChannelHandler] \(method) empty token on attempt=1, retrying")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        requestToken(attempt: 2)
+                    }
+                    return
+                }
+
+                completion(nil)
+            }
+        }
+
+        DispatchQueue.main.async {
+            requestToken(attempt: 1)
         }
     }
 
     /// Handle openChat method call
-    private func handleOpenChat(_ call: FlutterMethodCall, viewController: UIViewController, result: @escaping FlutterResult) {
+    private func handleOpenChat(
+        _ call: FlutterMethodCall, viewController: UIViewController, result: @escaping FlutterResult
+    ) {
         let args = call.arguments as? [String: Any]
-        let useConfigFile = args?["useConfigFile"] as? Bool ?? true
-        let persistConversation = args?["persistConversation"] as? Bool ?? true
 
         do {
-            if useConfigFile {
-                try SalesforceMessagingManager.shared.openChatAsBottomSheet(
+            guard let serviceApiUrl = args?["serviceApiUrl"] as? String,
+                let orgId = args?["orgId"] as? String,
+                let deploymentName = args?["deploymentName"] as? String
+            else {
+                result(
+                    FlutterError(
+                        code: "INVALID_ARGS", message: "Missing configuration parameters",
+                        details: nil))
+                return
+            }
+
+            let chatAssistantTitle = args?["chatAssistantTitle"] as? String
+            let chatAssistantTooltipMessage = args?["chatAssistantTooltipMessage"] as? String
+
+            let hasPreChatValues = args?["hasPreChatValues"] as? Bool ?? false
+            let clientId = args?["clientId"] as? String
+            let policyNumber = args?["policyNumber"] as? String
+            let reason = args?["reason"] as? String
+            let timeZoneOffset = args?["timeZoneOffset"] as? String
+            let hasAllPreChatValues =
+                !(clientId?.isEmpty ?? true)
+                && !(policyNumber?.isEmpty ?? true)
+                && !(reason?.isEmpty ?? true)
+                && !(timeZoneOffset?.isEmpty ?? true)
+
+            os_log(
+                "[SalesforceMethodChannelHandler] openChat manual mode hasPreChatValues=\(hasPreChatValues)"
+            )
+
+            if hasPreChatValues && !hasAllPreChatValues {
+                result(
+                    FlutterError(
+                        code: "INVALID_ARGS",
+                        message:
+                            "hasPreChatValues is true but one or more pre-chat fields are missing",
+                        details: [
+                            "clientId": clientId != nil,
+                            "policyNumber": policyNumber != nil,
+                            "reason": reason != nil,
+                            "timeZoneOffset": timeZoneOffset != nil,
+                        ]
+                    ))
+                return
+            }
+
+            if hasAllPreChatValues,
+                let clientId = clientId,
+                let policyNumber = policyNumber,
+                let reason = reason,
+                let timeZoneOffset = timeZoneOffset
+            {
+                os_log(
+                    "[SalesforceMethodChannelHandler] pre-chat payload lengths clientId=\(clientId.count) policyNumber=\(policyNumber.count) reason=\(reason.count) timeZoneOffset=\(timeZoneOffset.count)"
+                )
+                try SalesforceMessagingManager.shared.openChat(
                     from: viewController,
-                    usePersistedConversation: persistConversation
-                    setAuthTokenProvider(<#T##SalesforceAuthTokenProvider?#>)
+                    serviceApiUrl: serviceApiUrl,
+                    orgId: orgId,
+                    deploymentName: deploymentName,
+                    clientId: clientId,
+                    policyNumber: policyNumber,
+                    reason: reason,
+                    timeZoneOffset: timeZoneOffset,
+                    chatAssistantTitle: chatAssistantTitle,
+                    chatAssistantTooltipMessage: chatAssistantTooltipMessage
                 )
             } else {
-                guard let serviceApiUrl = args?["serviceApiUrl"] as? String,
-                      let orgId = args?["orgId"] as? String,
-                      let deploymentName = args?["deploymentName"] as? String else {
-                    result(FlutterError(code: "INVALID_ARGS", message: "Missing configuration parameters", details: nil))
-                    return
-                }
-
-                let hasPreChatValues = args?["hasPreChatValues"] as? Bool ?? false
-
-                if hasPreChatValues,
-                   let clientId = args?["clientId"] as? String,
-                   let policyNumber = args?["policyNumber"] as? String,
-                   let reason = args?["reason"] as? String,
-                   let timeZoneOffset = args?["timeZoneOffset"] as? String {
-                    try SalesforceMessagingManager.shared.openChatManualWithPreChatValues(
-                        from: viewController,
-                        serviceApiUrl: serviceApiUrl,
-                        orgId: orgId,
-                        deploymentName: deploymentName,
-                        clientId: clientId,
-                        policyNumber: policyNumber,
-                        reason: reason,
-                        timeZoneOffset: timeZoneOffset,
-                        usePersistedConversation: persistConversation
-                    )
-                } else {
-                    try SalesforceMessagingManager.shared.openChatManual(
-                        from: viewController,
-                        serviceApiUrl: serviceApiUrl,
-                        orgId: orgId,
-                        deploymentName: deploymentName,
-                        usePersistedConversation: persistConversation
-                    )
-                }
+                try SalesforceMessagingManager.shared.resumeChat(
+                    from: viewController,
+                    serviceApiUrl: serviceApiUrl,
+                    orgId: orgId,
+                    deploymentName: deploymentName,
+                    chatAssistantTitle: chatAssistantTitle,
+                    chatAssistantTooltipMessage: chatAssistantTooltipMessage
+                )
             }
             invokeFlutterMethod("onChatOpened")
             result(true)
         } catch {
-            result(FlutterError(code: "CHAT_ERROR", message: error.localizedDescription, details: nil))
+            result(
+                FlutterError(code: "CHAT_ERROR", message: error.localizedDescription, details: nil))
         }
     }
 }
-
