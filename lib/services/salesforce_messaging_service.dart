@@ -2,26 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:mynyl/l10n/app_localizations.dart';
-import 'package:mynyl/utils/bloc/post_login_bloc.dart';
-import 'package:mynyl/utils/helper/navigator_helper.dart';
 
-enum ChatSessionStatus {
-  opened,
-  minimized,
-  closed,
-  sessionEnded,
-  unknown,
-}
+enum ChatSessionStatus { opened, minimized, closed, sessionEnded, unknown }
 
 class ChatAssistantTooltipRequest {
   final double? anchorX;
   final double? anchorY;
 
-  const ChatAssistantTooltipRequest({
-    this.anchorX,
-    this.anchorY,
-  });
+  const ChatAssistantTooltipRequest({this.anchorX, this.anchorY});
 }
 
 /// Service class to interact with Salesforce In-App Messaging SDK
@@ -32,9 +20,11 @@ class SalesforceMessagingService {
   );
 
   static final _chatDismissedController = StreamController<String>.broadcast();
-  static final _chatStatusController = StreamController<ChatSessionStatus>.broadcast();
+  static final _chatStatusController =
+      StreamController<ChatSessionStatus>.broadcast();
   static final _chatUnreadCountController = StreamController<int>.broadcast();
-  static final _chatAssistantTooltipController = StreamController<ChatAssistantTooltipRequest>.broadcast();
+  static final _chatAssistantTooltipController =
+      StreamController<ChatAssistantTooltipRequest>.broadcast();
   static bool _handlerInitialized = false;
   static int _chatUnreadCount = 0;
   static bool _hasNativeUnreadCountSource = false;
@@ -49,15 +39,16 @@ class SalesforceMessagingService {
   }
 
   static Map<String, String> _chatAssistantLocalizationPayload() {
-    final context = NavigatorHelper.navigatorKey.currentContext;
-    final localizations = context == null ? null : AppLocalizations.of(context);
-    if (localizations == null) {
-      return const {};
-    }
+    // final context = NavigatorHelper.navigatorKey.currentContext;
+    // final localizations = context == null ? null : AppLocalizations.of(context);
+    // if (localizations == null) {
+    //   return const {};
+    // }
 
     return {
-      'chatAssistantTitle': localizations.chat_assistant_tooltip_title,
-      'chatAssistantTooltipMessage': localizations.chat_assistant_tooltip_message,
+      'chatAssistantTitle': 'localizations.chat_assistant_tooltip_title',
+      'chatAssistantTooltipMessage':
+          'localizations.chat_assistant_tooltip_message',
     };
   }
 
@@ -74,10 +65,12 @@ class SalesforceMessagingService {
       } else if (call.method == 'onChatClosed' || call.method == 'closed') {
         _emitChatStatus(ChatSessionStatus.closed);
         return true;
-      } else if (call.method == 'onChatMinimized' || call.method == 'minimized') {
+      } else if (call.method == 'onChatMinimized' ||
+          call.method == 'minimized') {
         _emitChatStatus(ChatSessionStatus.minimized);
         return true;
-      } else if (call.method == 'onSessionEnded' || call.method == 'sessionEnded') {
+      } else if (call.method == 'onSessionEnded' ||
+          call.method == 'sessionEnded') {
         _emitChatStatus(ChatSessionStatus.sessionEnded);
         return true;
       } else if (call.method == 'onChatUnreadCountChanged') {
@@ -91,7 +84,9 @@ class SalesforceMessagingService {
           _setUnreadCountFromNative(parsed);
         } else if (args is Map) {
           final dynamic raw = args['count'];
-          final parsed = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? _chatUnreadCount;
+          final parsed = raw is int
+              ? raw
+              : int.tryParse(raw?.toString() ?? '') ?? _chatUnreadCount;
           _log('onChatUnreadCountChanged(Map): raw=$raw parsed=$parsed');
           _setUnreadCountFromNative(parsed);
         }
@@ -109,14 +104,17 @@ class SalesforceMessagingService {
         }
 
         _log(
-            'onChatNewMessage: args=$args nativeCount=$nativeCount status=$_chatSessionStatus unread=$_chatUnreadCount hasNative=$_hasNativeUnreadCountSource');
+          'onChatNewMessage: args=$args nativeCount=$nativeCount status=$_chatSessionStatus unread=$_chatUnreadCount hasNative=$_hasNativeUnreadCountSource',
+        );
 
         // Native absolute unread callbacks have proven unreliable after minimize.
         // Keep badge state recoverable from new-message events while chat is minimized.
         if (_chatSessionStatus == ChatSessionStatus.minimized) {
           if (nativeCount != null) {
             if (nativeCount > _chatUnreadCount) {
-              _log('onChatNewMessage(minimized): applying nativeCount=$nativeCount');
+              _log(
+                'onChatNewMessage(minimized): applying nativeCount=$nativeCount',
+              );
               _setUnreadCount(nativeCount);
             }
           } else {
@@ -133,13 +131,21 @@ class SalesforceMessagingService {
         if (args is Map) {
           final dynamic rawX = args['anchorX'];
           final dynamic rawY = args['anchorY'];
-          final anchorX = rawX is num ? rawX.toDouble() : double.tryParse(rawX?.toString() ?? '');
-          final anchorY = rawY is num ? rawY.toDouble() : double.tryParse(rawY?.toString() ?? '');
-          _chatAssistantTooltipController.add(ChatAssistantTooltipRequest(anchorX: anchorX, anchorY: anchorY));
+          final anchorX = rawX is num
+              ? rawX.toDouble()
+              : double.tryParse(rawX?.toString() ?? '');
+          final anchorY = rawY is num
+              ? rawY.toDouble()
+              : double.tryParse(rawY?.toString() ?? '');
+          _chatAssistantTooltipController.add(
+            ChatAssistantTooltipRequest(anchorX: anchorX, anchorY: anchorY),
+          );
         }
         return true;
       } else if (call.method == 'getToken' || call.method == 'refreshToken') {
-        final token = await _fetchAuthToken(refresh: call.method == 'refreshToken');
+        final token = await _fetchAuthToken(
+          refresh: call.method == 'refreshToken',
+        );
         if (token != null) {
           return token;
         }
@@ -153,7 +159,8 @@ class SalesforceMessagingService {
     _log('status: $_chatSessionStatus -> $status');
     _chatSessionStatus = status;
     _chatStatusController.add(status);
-    if (status == ChatSessionStatus.closed || status == ChatSessionStatus.sessionEnded) {
+    if (status == ChatSessionStatus.closed ||
+        status == ChatSessionStatus.sessionEnded) {
       _log('status=$status, resetting unread to 0');
       _setUnreadCount(0);
     }
@@ -178,28 +185,7 @@ class SalesforceMessagingService {
   }
 
   static Future<String?> _fetchAuthToken({bool refresh = false}) async {
-    if (!refresh && _authToken != null) {
-      return _authToken!;
-    }
-
-    var result = await PostLoginBlocHelper.dashboardRepository.fetchChatCredentials();
-    if (result.$2) {
-      _authToken = result.$1.token;
-      _log('token fetch success on first attempt');
-      return _authToken;
-    }
-
-    // One fast retry helps with occasional transient auth failures observed during send.
-    _log('token fetch failed on first attempt, retrying once');
-    await Future.delayed(const Duration(milliseconds: 300));
-    result = await PostLoginBlocHelper.dashboardRepository.fetchChatCredentials();
-    if (result.$2) {
-      _authToken = result.$1.token;
-      _log('token fetch success on retry');
-    } else {
-      _log('token fetch failed after retry');
-    }
-    return _authToken;
+    return '';
   }
 
   static Future<bool> setUserVerificationToken(String token) async {
@@ -258,7 +244,8 @@ class SalesforceMessagingService {
     return _chatUnreadCountController.stream;
   }
 
-  static Stream<ChatAssistantTooltipRequest> get onChatAssistantTooltipRequested {
+  static Stream<ChatAssistantTooltipRequest>
+  get onChatAssistantTooltipRequested {
     _initializeHandler();
     return _chatAssistantTooltipController.stream;
   }
